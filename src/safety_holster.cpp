@@ -22,13 +22,20 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-
+// ip address 10.60.0.145
 #include "mraa.hpp"
 
 #include "UdpClient.hpp"
 #include <grove.h>
 #include <signal.h>
 #include <ublox6.h>
+#include <a110x.h>
+#include <stdio.h>
+#include <curl/curl.h>
+#include <iostream>
+#include <sstream>
+#include <string>
+
 using namespace upm;
 using namespace std;
 
@@ -93,12 +100,13 @@ int main()
 	// Instantiate a Ublox6 GPS device on uart 0.
 	upm::Ublox6* nmea = new upm::Ublox6(0);
 
-	int gunDrawn = 750;
+	int gunDrawn = 100;
 	int magFieldAvg = 0;
 	int magFieldCurrent = 0;
 	int magField[10];
 	int tempIndex = 0;
-	int numSamples = 5;
+	int numSamples = 2;
+	string tempData;
 
 	// check that we are running on Galileo or Edison
 	mraa_platform_t platform = mraa_get_platform_type();
@@ -109,35 +117,11 @@ int main()
 		return MRAA_ERROR_INVALID_PLATFORM;
 	}
 
-	/*// UdpClient class is wrapper for sending UDP data to iotkit-agent
-	UdpClient client;
-	if (client.connectUdp(NODE, SERVICE) < 0) {
-		std::cerr << "Connection to iotkit-agent failed, exiting" << std::endl;
-		return MRAA_ERROR_UNSPECIFIED;
-	}
-
-	// create an analog input object from MRAA using pin A0
-	mraa::Aio* a_pin = new mraa::Aio(0);
+	// Read in hall sensor data
 	if (a_pin == NULL) {
 		std::cerr << "Can't create mraa::Aio object, exiting" << std::endl;
 		return MRAA_ERROR_UNSPECIFIED;
 	}
-
-	// loop forever sending the input value every second
-    for (;;) {
-		uint16_t data = a_pin->read();
-		std::stringstream ss;
-		ss << "{\"n\":\"" << COMP_NAME << "\",\"v\":" << data << "}" << std::endl;
-		client.writeData(ss);
-		sleep(1);
-	}*/
-
-
-	// Read in hall sensor data
-	/*if (a_pin == NULL) {
-		std::cerr << "Can't create mraa::Aio object, exiting" << std::endl;
-		return MRAA_ERROR_UNSPECIFIED;
-	}*/
 
 
 	// GPS Setup
@@ -149,30 +133,35 @@ int main()
 	  return 1;
 	}
 
+	// Curl setup
+	//followed this curl example: http://curl.haxx.se/libcurl/c/http-post.html
+	CURL *curl;
+	CURLcode res;
+	// In windows, this will init the winsock stuff
+	curl_global_init(CURL_GLOBAL_ALL);
+	// get a curl handle
+	curl = curl_easy_init();
+	// First set the URL that is about to receive our POST. This URL can
+	//   just as well be a https:// URL if that is what should receive the
+	//   data.
+	curl_easy_setopt(curl, CURLOPT_URL, "https://flickering-inferno-5440.firebaseio.com/data.json");
 
-	//this is only inteded to collect NMEA data and not process it
+	//this is only intended to collect NMEA data and not process it
 	// should see output on console
 
 	char nmeaBuffer[bufferLength];
-
+	//char tempCharArray[10];
 	// loop forever printing the input value every second
-	while(0){
-		/*uint16_t pin_value = a_pin->read();
-		std::cout << "analog input value " << pin_value << std::endl;
-		std::cout << "mag field average " << magFieldAvg << std::endl;
+	while(1){
+		uint16_t pin_value = a_pin->read();
+		//std::cout << "analog input value " << pin_value << std::endl;
+		//std::cout << "mag field average " << magFieldAvg << std::endl;
 
 		// Calculate magnetic field average
 		magFieldAvg = 0;
-		if (pin_value > 850) {
-		  if (magFieldCurrent == 0) {
-		    tempIndex = numSamples-1;
-		  } else {
-		    tempIndex = magFieldCurrent - 1;
-		  }
-		  magField[magFieldCurrent++] = magField[tempIndex];
-		} else {
-		  magField[magFieldCurrent++] = pin_value;
-		}
+
+	    magField[magFieldCurrent++] = pin_value;
+
 		if (magFieldCurrent >= numSamples) {
 		  magFieldCurrent = 0;
 		}
@@ -180,18 +169,10 @@ int main()
 			magFieldAvg += magField[i];
 		}
 		magFieldAvg /= numSamples;
-		if (magFieldAvg > gunDrawn) {
-		  ledRed->on();
-		  ledGreen->off();
-		} else {
-		  ledRed->off();
-		  ledGreen->on();
-		}*/
 
 		sleep(1);
 
-
-		if(button->value() == 1) {
+		if(magFieldAvg < gunDrawn) {
 		  ledRed->off();
 		  ledGreen->on();
 		} else {
@@ -203,14 +184,42 @@ int main()
 		            write(1, nmeaBuffer, rv);
 		            std::cout << nmeaBuffer << std::endl;
 		          } else {
-		        	 // some sort of read error occured
+		        	 // some sort of read error occurred
 		              cerr << "Port read error." << endl;
 		              break;
 		          }
+
+		          //tempData = "{\"nmeaData\":\"";
+		          //for(int i = 70;i<81;i++){
+		          //	  tempCharArray[i-70] = nmeaBuffer[i];
+		          // }
+
+		          //tempData = tempData + string(nmeaBuffer) + "\"}";
+		          //tempData.append(nmeaBuffer);
+		          //tempData.append("\"}");
+
+
+				  // Now specify the POST data
+
+				  //curl_easy_setopt(curl, CURLOPT_POSTFIELDS, tempData.c_str());
+				  //std::cout << tempData.c_str() << std::endl;
+				  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, "{\"gunDrawn\":\"true\"}");
+
+				  // Perform the request, res will get the return code
+				  res = curl_easy_perform(curl);
+				  // Check for errors
+				  //std::cout << "curl output: " << res << std::endl;
+				  if(res != CURLE_OK)
+					fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+
+
 		        }
 
 	      ledRed->on();
 		  ledGreen->off();
+		}
+		if (button->value() == 1) {
+			break;
 		}
 	}
 
@@ -220,5 +229,9 @@ int main()
 
 	delete ledGreen;
 	delete ledRed;
+	delete a_pin;
+	delete button;
+	delete nmea;
+
 	return MRAA_SUCCESS;
 }
